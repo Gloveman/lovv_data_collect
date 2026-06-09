@@ -221,6 +221,7 @@ __marimo__/
 **/.terraform/
 *.tfstate
 *.tfstate.backup
+*.tfstate.lock.info
 *.tfplan
 *.terraform.lock.hcl
 infrastructure/terraform/*.zip
