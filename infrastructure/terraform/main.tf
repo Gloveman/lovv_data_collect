@@ -14,9 +14,9 @@ data "aws_caller_identity" "current" {}
 locals {
   bucket_name = "${var.bucket_base_name}-${var.env}-${data.aws_caller_identity.current.account_id}"
   lambda_names = {
-    raw_ingest   = "kr-raw-ingest"
-    transformer  = "kr-transformer"
-    loader       = "kr-loader"
+    raw_ingest  = "kr-raw-ingest"
+    transformer = "kr-transformer"
+    loader      = "kr-loader"
   }
   base_tags = merge(var.tags, { env = var.env })
 }
@@ -115,7 +115,7 @@ resource "aws_dynamodb_table" "tourkorea_data" {
   global_secondary_index {
     name            = "GSI1"
     hash_key        = "entity_id"
-    projection_type  = "ALL"
+    projection_type = "ALL"
   }
 
   global_secondary_index {
@@ -137,7 +137,7 @@ resource "aws_iam_role" "pipeline_lambda_role" {
   name = "lovv-data-pipeline-lambda-${var.env}"
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Action = "sts:AssumeRole"
@@ -180,7 +180,7 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
         Resource = aws_dynamodb_table.tourkorea_data.arn
       },
       {
-        Effect   = "Allow"
+        Effect = "Allow"
         Action = [
           "s3:ListBucket",
           "s3:GetObject",
@@ -221,4 +221,56 @@ resource "aws_cloudwatch_log_group" "lambda_loader" {
   # loader Lambda 런타임 로그. 보관 기간은 14일.
   name              = "/aws/lambda/${local.lambda_names.loader}"
   retention_in_days = 14
+}
+
+data "archive_file" "kr_pipeline_lambda" {
+  # 현재 패키지는 `src/` 전체를 ZIP으로 묶어 Lambda에서 공통 handler를 로드합니다.
+  type        = "zip"
+  source_dir  = "${path.module}/../src"
+  output_path = "${path.module}/kr_pipeline_lambda.zip"
+}
+
+resource "aws_lambda_function" "kr_transformer" {
+  # PRD의 kr-transformer를 수동 실행 가능한 스모크 함수로 먼저 배포합니다.
+  function_name    = local.lambda_names.transformer
+  role             = aws_iam_role.pipeline_lambda_role.arn
+  handler          = "kr_details_pipeline.handlers.transformer_handler.handler"
+  runtime          = "python3.12"
+  timeout          = 300
+  memory_size      = 512
+  filename         = data.archive_file.kr_pipeline_lambda.output_path
+  source_code_hash = data.archive_file.kr_pipeline_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      RAW_PREFIX       = var.raw_data_prefix
+      PROCESSED_PREFIX = var.processed_data_prefix
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.pipeline_lambda_policy,
+  ]
+}
+
+resource "aws_lambda_function" "kr_loader" {
+  function_name    = local.lambda_names.loader
+  role             = aws_iam_role.pipeline_lambda_role.arn
+  handler          = "kr_details_pipeline.handlers.loader_handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 512
+  filename         = data.archive_file.kr_pipeline_lambda.output_path
+  source_code_hash = data.archive_file.kr_pipeline_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      PROCESSED_PREFIX = var.processed_data_prefix
+      DYNAMODB_TABLE   = var.dynamodb_table_name
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.pipeline_lambda_policy,
+  ]
 }

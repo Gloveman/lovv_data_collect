@@ -27,3 +27,27 @@ output "lambda_role_arn" {
   description = "IAM role for pipeline lambdas."
   value       = aws_iam_role.pipeline_lambda_role.arn
 }
+
+output "kr_transformer_lambda_name" {
+  # 수동 호출/테스트용 kr-transformer Lambda.
+  description = "Name of deployed KR transformer Lambda function."
+  value       = aws_lambda_function.kr_transformer.function_name
+}
+
+output "kr_transformer_lambda_arn" {
+  # 상태 추적 및 관측성 확인용 ARN 출력.
+  description = "ARN of deployed KR transformer Lambda function."
+  value       = aws_lambda_function.kr_transformer.arn
+}
+
+output "kr_loader_lambda_name" {
+  # 수동 호출/배치 적재용 kr-loader Lambda.
+  description = "Name of deployed KR loader Lambda function."
+  value       = aws_lambda_function.kr_loader.function_name
+}
+
+output "kr_loader_lambda_arn" {
+  # 상태 추적 및 운영 로그 연동용 ARN 출력.
+  description = "ARN of deployed KR loader Lambda function."
+  value       = aws_lambda_function.kr_loader.arn
+}
