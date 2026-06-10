@@ -1,13 +1,13 @@
-# Terraform Phase 0 Infrastructure (S3 / Lambda-ready IAM / DDB)
+# Terraform Phase 0 Infrastructure (S3 / Lambda / DDB)
 
 ## Purpose
 
 Phase 0 최저 구성(Infrastructure)만 배포합니다.
 
 - S3 버킷(버전 관리, SSE, Raw 수명 주기 정책)
-- 서비스 조회 테이블(`TourKoreaData`) + GSI
+- 도메인 분리 조회 테이블(`TourKoreaDomainData`) + GSI
 - Lambda 실행용 IAM Role/Policy
-- CloudWatch Log Group
+- `kr-domain-loader` Lambda와 CloudWatch Log Group
 - DLQ/CloudWatch 알람은 현재 단계에서 제외(향후 추가 예정)
 
 ## 왜 TF_VAR_ 방식인가
@@ -41,7 +41,7 @@ $env:TF_VAR_aws_profile = "skn26_final"
 $env:TF_VAR_aws_region = "us-east-1"
 $env:TF_VAR_env = "dev"
 $env:TF_VAR_bucket_base_name = "lovv-data-pipeline"
-$env:TF_VAR_dynamodb_table_name = "TourKoreaData"
+$env:TF_VAR_domain_dynamodb_table_name = "TourKoreaDomainData"
 terraform init
 terraform validate
 terraform plan

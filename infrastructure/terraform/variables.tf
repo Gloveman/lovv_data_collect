@@ -61,12 +61,6 @@ variable "quality_prefix" {
 # -----------------------------------------------------------------------------
 # 데이터 저장소(DynamoDB) 구성
 # -----------------------------------------------------------------------------
-variable "dynamodb_table_name" {
-  description = "DynamoDB table name used by service layer data."
-  type        = string
-  default     = "TourKoreaData"
-}
-
 variable "domain_dynamodb_table_name" {
   description = "DynamoDB table name for domain-separated KR content data."
   type        = string

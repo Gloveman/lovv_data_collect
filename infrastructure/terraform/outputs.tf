@@ -10,18 +10,6 @@ output "bucket_arn" {
   value       = aws_s3_bucket.pipeline.arn
 }
 
-output "dynamodb_table_name" {
-  # 다음 계층(서비스/ETL)에서 참조할 테이블 이름.
-  description = "Service read model table."
-  value       = aws_dynamodb_table.tourkorea_data.name
-}
-
-output "dynamodb_table_arn" {
-  # 테이블 ARN (권한 바인딩/감사 로그 링크용).
-  description = "Service read model table ARN."
-  value       = aws_dynamodb_table.tourkorea_data.arn
-}
-
 output "domain_dynamodb_table_name" {
   # 음식점/관광지/축제 분리 전처리 결과를 적재할 신규 테이블 이름.
   description = "Domain-separated KR content table."

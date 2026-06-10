@@ -14,7 +14,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     import boto3
 
     bucket = str(event["bucket"])
-    table_name = str(event.get("table_name") or os.getenv("DYNAMODB_TABLE") or "TourKoreaData")
+    table_name = str(event.get("table_name") or os.getenv("DYNAMODB_TABLE") or "TourKoreaDomainData")
     processed_prefix = str(event.get("processed_prefix", "processed/KR"))
     ingest_date = str(event.get("ingest_date") or datetime.utcnow().strftime("%Y%m%d"))
     debug_failures = bool(os.getenv("DEBUG_LOAD_FAILURES") == "1")

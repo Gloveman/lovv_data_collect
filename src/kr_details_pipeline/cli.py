@@ -33,7 +33,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     load_cmd = subparsers.add_parser("load", help="Build deterministic DDB items from processed payloads.")
     load_cmd.add_argument("--processed-dir", type=Path, required=True, help="Directory containing processed city payload files.")
-    load_cmd.add_argument("--table-name", default="TourKoreaData")
+    load_cmd.add_argument("--table-name", default="TourKoreaDomainData")
     load_cmd.add_argument("--output", type=Path, default=None, help="Optional path to write load candidates as JSONL.")
 
     domain_preprocess = subparsers.add_parser("domain-preprocess", help="Split one KR raw detail JSON into restaurant, attraction, and festival items.")

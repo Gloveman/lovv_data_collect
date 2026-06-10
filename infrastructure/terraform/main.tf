@@ -81,58 +81,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "pipeline" {
   }
 }
 
-resource "aws_dynamodb_table" "tourkorea_data" {
-  # 서비스 데이터 조회/분석을 위한 단일 테이블 설계.
-  # 기본 키(PK, SK) + GSI2개로 조회 패턴을 분리합니다.
-  name           = var.dynamodb_table_name
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "PK"
-  range_key      = "SK"
-  stream_enabled = false
-
-  attribute {
-    name = "PK"
-    type = "S"
-  }
-
-  attribute {
-    name = "SK"
-    type = "S"
-  }
-
-  attribute {
-    name = "entity_id"
-    type = "S"
-  }
-
-  attribute {
-    name = "geohash_prefix"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "GSI1"
-    hash_key        = "entity_id"
-    projection_type = "ALL"
-  }
-
-  global_secondary_index {
-    name            = "GSI2"
-    hash_key        = "geohash_prefix"
-    range_key       = "SK"
-    projection_type = "ALL"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  tags = merge(local.base_tags, { Name = var.dynamodb_table_name })
-}
-
 resource "aws_dynamodb_table" "tourkorea_domain_data" {
-  # 음식점/관광지/축제를 분리한 전처리 결과를 적재하는 신규 도메인 테이블입니다.
-  # 기존 TourKoreaData와 분리해 혼합 스키마 영향을 격리합니다.
+  # 음식점/관광지/축제를 분리한 전처리 결과를 적재하는 도메인 테이블입니다.
   name           = var.domain_dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "PK"
@@ -150,11 +100,6 @@ resource "aws_dynamodb_table" "tourkorea_domain_data" {
   }
 
   attribute {
-    name = "entity_id"
-    type = "S"
-  }
-
-  attribute {
     name = "entity_type"
     type = "S"
   }
@@ -165,26 +110,32 @@ resource "aws_dynamodb_table" "tourkorea_domain_data" {
   }
 
   attribute {
+    name = "province_key"
+    type = "S"
+  }
+
+  attribute {
     name = "domain_sort_key"
     type = "S"
   }
 
   global_secondary_index {
     name            = "GSI1"
-    hash_key        = "entity_id"
+    hash_key        = "city_key"
+    range_key       = "domain_sort_key"
     projection_type = "ALL"
   }
 
   global_secondary_index {
     name            = "GSI2"
-    hash_key        = "entity_type"
-    range_key       = "SK"
+    hash_key        = "province_key"
+    range_key       = "domain_sort_key"
     projection_type = "ALL"
   }
 
   global_secondary_index {
     name            = "GSI3"
-    hash_key        = "city_key"
+    hash_key        = "entity_type"
     range_key       = "domain_sort_key"
     projection_type = "ALL"
   }
@@ -280,6 +231,10 @@ data "archive_file" "kr_pipeline_lambda" {
   type        = "zip"
   source_dir  = "${path.module}/../../src"
   output_path = "${path.module}/kr_pipeline_lambda.zip"
+  excludes = [
+    "**/__pycache__/**",
+    "**/tests/**",
+  ]
 }
 
 resource "aws_lambda_function" "kr_domain_loader" {
