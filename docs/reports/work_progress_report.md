@@ -13,7 +13,7 @@
     - 현재 기본값: `lovv-data-pipeline-dev-925273580929`
     - 버킷 정책: 퍼블릭 차단, 버저닝, SSE(AES256), 수명 주기(30일/60일)
   - DynamoDB
-    - 테이블명: `TourKoreaData`
+    - 테이블명: `TourKoreaDomainData`
     - PK: `PK`, SK: `SK`, PAY_PER_REQUEST
     - GSI
       - `GSI1(entity_id)`
@@ -34,7 +34,7 @@
 - 주요 엔트리포인트
   - `raw-ingest`: 로컬 JSON을 S3 raw 경로로 업로드
   - `transform`: raw JSON을 상태 기반 payload로 분기
-  - `load`: 처리 결과를 `TourKoreaData` 엔트리에 적재할 형태로 정규화
+  - `load`: 처리 결과를 `TourKoreaDomainData` 엔트리에 적재할 형태로 정규화
 - 결과
  - 원본 수집 파이프라인의 1차 실무 실행 기준이 되는 키 규칙과 쓰기 규칙 정리 완료
  - 변환 규칙은 `city_id`, `PK`, `SK`, `entity_id`, `quality_status`, `SK=STAT#yyyymm` 패턴 적용

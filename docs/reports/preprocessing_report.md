@@ -184,10 +184,10 @@ DynamoDB 적재 후보 또는 Lambda 기반 실제 write
 
 ## 9. 현재 리스크
 
-1. 기존 `TourKoreaData`와 신규 `TourKoreaDomainData`의 역할이 문서상 명확히 분리되어야 한다.
+1. 기존 `TourKoreaData` 제거 이후 문서 정합성을 계속 관리해야 한다.
    - 현재 도메인 분리 적재의 운영 기준은 `TourKoreaDomainData`이다.
-   - 기존 `TourKoreaData`는 이전 파이프라인 호환 또는 비교용 테이블로 남아 있다.
-   - README와 관련 문서에서 두 테이블의 사용 목적을 명확히 분리해야 한다.
+   - 기존 `TourKoreaData`는 Terraform과 AWS에서 제거되었다.
+   - 오래된 Spec/작업 보고서에 남은 과거 테이블명은 후속 문서 정리 대상이다.
 
 2. `domain-preprocess` 운영 명령이 README에 아직 반영되지 않았다.
    - CLI에는 명령이 존재하지만 팀원이 바로 실행할 수 있는 문서 섹션은 부족하다.

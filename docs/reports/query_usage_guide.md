@@ -142,7 +142,7 @@ resp = ddb.query(
 
 ## 5. 주의/운영 노트
 - 현재 도메인 분리 적재의 운영 기준 테이블은 `TourKoreaDomainData`입니다.
-- 기존 `TourKoreaData`는 이전 파이프라인 산출물과 비교할 때만 사용합니다.
+- 기존 `TourKoreaData`는 제거됐으므로 신규 조회와 재적재는 `TourKoreaDomainData`만 사용합니다.
 - `kr-domain-loader`는 같은 `PK`/`SK`에 대해 `put_item`으로 덮어씁니다. 컬럼 구조가 바뀐 경우에는 테이블 item 삭제 후 전체 재적재가 더 안전합니다.
 - 민감값(ACCESS KEY/SECRET)은 `~/.aws/credentials` 또는 세션 프로파일 기반으로 관리하고, 코드/문서에 직접 노출하지 않습니다.
 - 배포/운영에서 `query` 대신 `scan`을 남발하면 비용이 증가할 수 있으므로 우선 PK/SK 패턴을 고정해 조회하십시오.
