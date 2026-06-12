@@ -15,8 +15,11 @@ locals {
   bucket_name = "${var.bucket_base_name}-${var.env}-${data.aws_caller_identity.current.account_id}"
   lambda_names = {
     domain_loader = "kr-domain-loader"
+    vector_index  = "kr-vector-index"
   }
-  base_tags = merge(var.tags, { env = var.env })
+  vector_bucket_arn   = "arn:aws:s3vectors:${var.aws_region}:${data.aws_caller_identity.current.account_id}:bucket/${var.vector_bucket_name}"
+  kr_vector_index_arn = "${local.vector_bucket_arn}/index/${var.kr_vector_index_name}"
+  base_tags           = merge(var.tags, { env = var.env })
 }
 
 resource "aws_s3_bucket" "pipeline" {
@@ -169,7 +172,7 @@ resource "aws_iam_role" "pipeline_lambda_role" {
 
 resource "aws_iam_role_policy" "pipeline_lambda_policy" {
   # Lambda 기능에 필요한 최소 권한을 인라인으로 제한합니다.
-  # 현재 단계에서는 DynamoDB, S3, CloudWatch Logs만 허용합니다.
+  # 현재 단계에서는 DynamoDB, S3, CloudWatch Logs, Bedrock, S3 Vector만 허용합니다.
   name = "lovv-data-pipeline-lambda-policy-${var.env}"
   role = aws_iam_role.pipeline_lambda_role.id
 
@@ -186,6 +189,13 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
           "dynamodb:Query"
         ]
         Resource = aws_dynamodb_table.tourkorea_domain_data.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query"
+        ]
+        Resource = "${aws_dynamodb_table.tourkorea_domain_data.arn}/index/*"
       },
       {
         Effect = "Allow"
@@ -215,6 +225,120 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3vectors:GetVectorBucket",
+          "s3vectors:GetIndex",
+          "s3vectors:ListVectors",
+          "s3vectors:GetVectors",
+          "s3vectors:QueryVectors",
+          "s3vectors:PutVectors"
+        ]
+        Resource = [
+          local.vector_bucket_arn,
+          local.kr_vector_index_arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "s3_vector_index_writer_role" {
+  # S3 Vector index build pipeline role. It can write vectors and run verification queries.
+  name = "lovv-vector-index-writer-${var.env}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+      }
+    ]
+  })
+
+  tags = merge(local.base_tags, { Name = "lovv-vector-index-writer-${var.env}", scope = "s3-vector-writer" })
+}
+
+resource "aws_iam_role_policy" "s3_vector_index_writer_policy" {
+  # Writer can build, repair, and verify the vector index, but cannot create/delete vector buckets or indexes.
+  name = "lovv-vector-index-writer-policy-${var.env}"
+  role = aws_iam_role.s3_vector_index_writer_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3vectors:GetVectorBucket",
+          "s3vectors:GetIndex",
+          "s3vectors:ListIndexes",
+          "s3vectors:ListVectors",
+          "s3vectors:GetVectors",
+          "s3vectors:QueryVectors",
+          "s3vectors:PutVectors"
+        ]
+        Resource = [
+          local.vector_bucket_arn,
+          local.kr_vector_index_arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "s3_vector_index_reader_role" {
+  # Candidate Evidence Agent retrieval role. It can query the index but cannot mutate vectors.
+  name = "lovv-vector-index-reader-${var.env}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+      }
+    ]
+  })
+
+  tags = merge(local.base_tags, { Name = "lovv-vector-index-reader-${var.env}", scope = "s3-vector-reader" })
+}
+
+resource "aws_iam_role_policy" "s3_vector_index_reader_policy" {
+  # Reader is intentionally query-only for CEA retrieval. Mutating actions are excluded.
+  name = "lovv-vector-index-reader-policy-${var.env}"
+  role = aws_iam_role.s3_vector_index_reader_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3vectors:GetVectorBucket",
+          "s3vectors:GetIndex",
+          "s3vectors:QueryVectors"
+        ]
+        Resource = [
+          local.vector_bucket_arn,
+          local.kr_vector_index_arn
+        ]
       }
     ]
   })
@@ -226,6 +350,12 @@ resource "aws_cloudwatch_log_group" "lambda_domain_loader" {
   retention_in_days = 14
 }
 
+resource "aws_cloudwatch_log_group" "lambda_vector_index" {
+  # vector-index Lambda 런타임 로그. 보관 기간은 14일.
+  name              = "/aws/lambda/${local.lambda_names.vector_index}"
+  retention_in_days = 14
+}
+
 data "archive_file" "kr_pipeline_lambda" {
   # 현재 패키지는 `src/` 전체를 ZIP으로 묶어 Lambda에서 공통 handler를 로드합니다.
   type        = "zip"
@@ -234,6 +364,19 @@ data "archive_file" "kr_pipeline_lambda" {
   excludes = [
     "**/__pycache__/**",
     "**/tests/**",
+    "kr_vector_index/**",
+  ]
+}
+
+data "archive_file" "kr_vector_index_lambda" {
+  # S3 Vector index handler만 별도 ZIP으로 묶어 domain-loader 재배포를 피합니다.
+  type        = "zip"
+  source_dir  = "${path.module}/../../src"
+  output_path = "${path.module}/kr_vector_index_lambda.zip"
+  excludes = [
+    "**/__pycache__/**",
+    "**/tests/**",
+    "kr_details_pipeline/**",
   ]
 }
 
@@ -258,5 +401,32 @@ resource "aws_lambda_function" "kr_domain_loader" {
   depends_on = [
     aws_iam_role_policy.pipeline_lambda_policy,
     aws_cloudwatch_log_group.lambda_domain_loader,
+  ]
+}
+
+resource "aws_lambda_function" "kr_vector_index" {
+  function_name    = local.lambda_names.vector_index
+  description      = "KR S3 Vector index build Lambda handler"
+  role             = aws_iam_role.pipeline_lambda_role.arn
+  handler          = "kr_vector_index.handlers.vector_index_handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 1024
+  filename         = data.archive_file.kr_vector_index_lambda.output_path
+  source_code_hash = data.archive_file.kr_vector_index_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE  = var.domain_dynamodb_table_name
+      VECTOR_BUCKET   = var.vector_bucket_name
+      VECTOR_INDEX    = var.kr_vector_index_name
+      MANIFEST_BUCKET = aws_s3_bucket.pipeline.bucket
+      MANIFEST_PREFIX = "${var.processed_data_prefix}/vector/manifests"
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.pipeline_lambda_policy,
+    aws_cloudwatch_log_group.lambda_vector_index,
   ]
 }

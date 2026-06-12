@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kr_details_pipeline"]
+packages = ["src/kr_details_pipeline", "src/kr_vector_index"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

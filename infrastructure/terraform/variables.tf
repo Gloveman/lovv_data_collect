@@ -58,6 +58,18 @@ variable "quality_prefix" {
   default     = "quality/KR"
 }
 
+variable "vector_bucket_name" {
+  description = "S3 Vector bucket name for KR vector indexes."
+  type        = string
+  default     = "lovv-vector-dev"
+}
+
+variable "kr_vector_index_name" {
+  description = "S3 Vector index name for KR tourism domain data."
+  type        = string
+  default     = "kr-tour-domain-v1"
+}
+
 # -----------------------------------------------------------------------------
 # 데이터 저장소(DynamoDB) 구성
 # -----------------------------------------------------------------------------
