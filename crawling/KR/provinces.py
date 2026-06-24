@@ -51,7 +51,6 @@ MUNICIPALITY_EN_MAP: Final[dict[str, str]] = {
     "평창군": "PYEONGCHANG",
     "정선군": "JEONGSEON",
     "철원군": "CHEORWON",
-    "철원군 (대한민국)": "CHEORWON",
     "화천군": "HWACHEON",
     "양구군": "YANGGU",
     "인제군": "INJE",
