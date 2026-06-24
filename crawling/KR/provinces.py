@@ -2,7 +2,7 @@
 South Korea province reference data.
 
 This file owns province lookup, detection, and English/ID translation
-mapping for Gangwon and Gyeongbuk municipalities.
+mapping for all 17 Korean metropolitan cities and provinces.
 """
 
 from __future__ import annotations
@@ -13,8 +13,23 @@ from typing import Final
 from crawling.KR.models import ProvinceReference
 
 PROVINCES: Final[tuple[ProvinceReference, ...]] = (
+    ProvinceReference("KR-11", "서울특별시", "Seoul", "Capital"),
+    ProvinceReference("KR-26", "부산광역시", "Busan", "Yeongnam"),
+    ProvinceReference("KR-27", "대구광역시", "Daegu", "Yeongnam"),
+    ProvinceReference("KR-28", "인천광역시", "Incheon", "Capital"),
+    ProvinceReference("KR-29", "광주광역시", "Gwangju", "Honam"),
+    ProvinceReference("KR-30", "대전광역시", "Daejeon", "Chungcheong"),
+    ProvinceReference("KR-31", "울산광역시", "Ulsan", "Yeongnam"),
+    ProvinceReference("KR-36", "세종특별자치시", "Sejong", "Chungcheong"),
+    ProvinceReference("KR-41", "경기도", "Gyeonggi-do", "Capital"),
     ProvinceReference("KR-42", "강원특별자치도", "Gangwon State", "Gangwon"),
+    ProvinceReference("KR-43", "충청북도", "Chungcheongbuk-do", "Chungcheong"),
+    ProvinceReference("KR-44", "충청남도", "Chungcheongnam-do", "Chungcheong"),
+    ProvinceReference("KR-45", "전북특별자치도", "Jeonbuk State", "Honam"),
+    ProvinceReference("KR-46", "전라남도", "Jeollanam-do", "Honam"),
     ProvinceReference("KR-47", "경상북도", "Gyeongsangbuk-do", "Yeongnam"),
+    ProvinceReference("KR-48", "경상남도", "Gyeongsangnam-do", "Yeongnam"),
+    ProvinceReference("KR-50", "제주특별자치도", "Jeju", "Jeju"),
 )
 
 # Pre-defined mapping of Korean municipality names to their English romanized names
