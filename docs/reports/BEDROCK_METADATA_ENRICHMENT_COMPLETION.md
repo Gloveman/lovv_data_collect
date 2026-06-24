@@ -153,3 +153,268 @@ dev = [
 3. Bedrock 모델 ID 확정 및 프롬프트 튜닝
 4. DynamoDB GSI 인프라 배포 (FestivalMonthIndex)
 5. 파이프라인 통합 테스트 (실제 Bedrock 호출 포함)
+
+---
+
+## AWS 배포 상태 (2026-06-23)
+
+| 리소스 | 상태 |
+|--------|------|
+| DynamoDB `TourKoreaDomainData` | ✅ FestivalMonthIndex GSI 추가 완료 |
+| Lambda `kr-domain-loader` | ✅ 신규 모듈 포함 배포 완료 |
+| Lambda `kr-vector-index` | ✅ metadata 확장 포함 배포 완료 |
+| IAM 정책 | ✅ Bedrock Claude 모델 접근 권한 추가 |
+| `classification_dict.json` | ✅ 64개 코드로 확장 (실제 데이터 기반) |
+
+### 전체 파이프라인 실행 결과
+
+| 단계 | 결과 |
+|------|------|
+| Domain Loader (40개 도시) | 2,733 아이템 → DynamoDB (전체 4,334건) |
+| Vector Index Build (40개 도시) | 2,250 벡터 → S3 Vector Index |
+| 실패 | 0건 |
+
+### Vector Metadata 확인
+
+벡터 metadata에 새 필드가 정상 반영됨:
+- `attraction_subtype_code` ✅ (예: "VE070100", "HS010400")
+- `theme_tags` ✅ (예: ["역사·전통"], ["자연·트레킹"])
+- `season_tags` ✅ (축제: ["summer"])
+- `visit_months` ✅ (축제: [8, 9, 10])
+
+
+---
+
+## 사용 방법
+
+### 1. Domain Loader Lambda (전처리 + DynamoDB 적재)
+
+S3에 있는 도시별 raw JSON을 전처리하여 DynamoDB에 적재합니다.
+
+```bash
+# 단일 도시 처리
+aws lambda invoke \
+  --function-name kr-domain-loader \
+  --payload '{"bucket":"lovv-data-pipeline-dev-925273580929","raw_key":"raw/KR/details/20260609/Andong.json"}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile skn26_final --region us-east-1 \
+  result.json
+
+# 결과 확인
+cat result.json | python -m json.tool
+```
+
+**이벤트 파라미터:**
+| 파라미터 | 필수 | 설명 |
+|---------|------|------|
+| `bucket` | ✅ | S3 버킷명 |
+| `raw_key` | ✅ | raw JSON 객체 키 |
+| `table_name` | - | DynamoDB 테이블 (기본: TourKoreaDomainData) |
+| `write_processed` | - | S3에 처리 결과 기록 (기본: true) |
+
+---
+
+### 2. Vector Index Lambda (벡터 인덱스 빌드)
+
+DynamoDB 데이터를 임베딩하여 S3 Vector Index에 적재합니다.
+
+```bash
+# export-counts: 데이터 수량만 확인 (빠름)
+aws lambda invoke \
+  --function-name kr-vector-index \
+  --payload '{"command":"export-counts","city_pk":"CITY#Andong"}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile skn26_final --region us-east-1 \
+  counts.json
+
+# build (dry_run): 임베딩 없이 chunk 생성만 테스트
+aws lambda invoke \
+  --function-name kr-vector-index \
+  --payload '{"command":"build","dry_run":true,"city_pk":"CITY#Andong"}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile skn26_final --region us-east-1 \
+  dry_run.json
+
+# build (실제 벡터 적재)
+aws lambda invoke \
+  --function-name kr-vector-index \
+  --payload '{"command":"build","dry_run":false,"city_pk":"CITY#Andong"}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile skn26_final --region us-east-1 \
+  build.json
+
+# 전체 데이터 빌드 (city_pk 생략)
+aws lambda invoke \
+  --function-name kr-vector-index \
+  --payload '{"command":"build","dry_run":false}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile skn26_final --region us-east-1 \
+  build_all.json
+```
+
+**이벤트 파라미터:**
+| 파라미터 | 필수 | 설명 |
+|---------|------|------|
+| `command` | ✅ | `export-counts` 또는 `build` |
+| `dry_run` | - | true면 임베딩/벡터 적재 생략 (기본: false) |
+| `city_pk` | - | 특정 도시만 처리 (예: "CITY#Andong") |
+| `max_items` | - | 처리할 최대 아이템 수 |
+| `vector_bucket` | - | S3 Vector 버킷 (기본: lovv-vector-dev) |
+| `index_name` | - | 벡터 인덱스명 (기본: kr-tour-domain-v1) |
+
+---
+
+### 3. 벡터 검색 (S3 Vectors CLI)
+
+```bash
+# 벡터 목록 조회
+aws s3vectors list-vectors \
+  --vector-bucket-name lovv-vector-dev \
+  --index-name kr-tour-domain-v1 \
+  --max-results 10 --segment-count 1 --segment-index 0 \
+  --profile skn26_final --region us-east-1
+
+# 특정 벡터 metadata 조회
+aws s3vectors get-vectors \
+  --vector-bucket-name lovv-vector-dev \
+  --index-name kr-tour-domain-v1 \
+  --keys '["attraction#1028910#0"]' \
+  --return-metadata \
+  --profile skn26_final --region us-east-1
+```
+
+---
+
+### 4. DynamoDB GSI 월별 축제 조회
+
+```bash
+# 10월 축제 조회 (FestivalMonthIndex GSI)
+aws dynamodb query \
+  --table-name TourKoreaDomainData \
+  --index-name FestivalMonthIndex \
+  --key-condition-expression "entity_type = :et AND begins_with(gsi_sk, :prefix)" \
+  --expression-attribute-values '{":et":{"S":"festival"},":prefix":{"S":"FESTIVAL#10"}}' \
+  --profile skn26_final --region us-east-1
+```
+
+**월 코드 형식:** `FESTIVAL#{월2자리}#{content_id}` (예: FESTIVAL#10#2002)
+
+---
+
+### 5. Bedrock Enrichment 실행 (향후 — 아직 Lambda 연결 안됨)
+
+Enrichment Engine과 Theme Classifier는 모듈로 구현되었으나, 아직 별도 Lambda handler가 없습니다. 로컬에서 직접 실행하거나 Lambda handler를 추가하여 사용합니다:
+
+```python
+# Python에서 직접 사용 (로컬 또는 Lambda 내부)
+import boto3
+from kr_details_pipeline.enrichment_engine import enrich_attraction, run_enrichment_batch
+from kr_details_pipeline.theme_classifier import classify_festival_theme, run_classification_batch
+
+# Bedrock client
+bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+# 단일 관광지 enrichment
+item = {...}  # DynamoDB에서 가져온 attraction item
+result = enrich_attraction(bedrock, item)
+# result.status: "succeeded" | "failed" | "skipped"
+# result.indoor_outdoor, result.vibe_tags, result.experience_tags, result.companion_fit
+
+# 배치 enrichment (500건 초과 시 자동 분할)
+items = [...]  # DynamoDB에서 가져온 attraction item 목록
+batch_result = run_enrichment_batch(bedrock, items)
+# batch_result.success_count, batch_result.failure_count, batch_result.skip_count
+
+# 단일 축제 테마 재분류
+festival_item = {...}  # DynamoDB에서 가져온 festival item
+theme_result = classify_festival_theme(bedrock, festival_item)
+# theme_result.primary_theme: "자연·트레킹"
+# theme_result.theme_tags: ["자연·트레킹", "온천·휴양"]
+
+# 배치 재분류
+festival_items = [...]
+batch = run_classification_batch(bedrock, festival_items)
+```
+
+---
+
+### 6. 전체 파이프라인 실행 순서
+
+```
+1. S3에 raw JSON 업로드
+   └→ s3://lovv-data-pipeline-dev-925273580929/raw/KR/details/{date}/{city}.json
+
+2. Domain Loader Lambda 실행 (도시별)
+   └→ DynamoDB에 attraction/festival/city_metadata/visitor_statistics 적재
+   └→ lcls_systm3, source_type, raw_s3_uri, subtype 매핑, GSI SK 자동 생성
+
+3. [선택] Bedrock Enrichment 실행
+   └→ attraction: indoor_outdoor, vibe_tags, experience_tags, companion_fit 추출
+   └→ festival: Lovv 6대 테마 재분류
+
+4. Vector Index Lambda 실행 (도시별 또는 전체)
+   └→ DynamoDB → Titan Embedding → S3 Vector Index 적재
+   └→ metadata에 attraction_subtype_code, theme_tags 등 포함
+
+5. 벡터 검색 활용
+   └→ S3 Vectors query-vectors API로 유사도 검색
+   └→ metadata filter로 entity_type, theme_tags, season_tags 등 필터링
+```
+
+---
+
+## 남은 작업 (향후)
+
+1. **Bedrock Enrichment Lambda handler 추가** — enrichment_engine, theme_classifier를 호출하는 전용 Lambda
+2. **Property-based 테스트 구현** — hypothesis 기반 13개 테스트
+3. **기존 restaurant 벡터 삭제** — S3 Vector Index에서 `restaurant#*` 키 정리
+4. **Bedrock 프롬프트 튜닝** — 실제 데이터로 출력 품질 최적화
+5. **EventBridge/Step Functions 연동** — S3 업로드 → 자동 파이프라인 트리거
+
+---
+
+## Bedrock Enrichment 실제 검증 (2026-06-23)
+
+Amazon Nova Lite (`amazon.nova-lite-v1:0`) 모델로 실제 DynamoDB 아이템에 대한 enrichment를 검증함.
+
+### 관광지 Enrichment 결과 (3건 샘플)
+
+| 관광지 | indoor_outdoor | vibe_tags | experience_tags | companion_fit |
+|--------|---------------|-----------|-----------------|---------------|
+| 전통문화콘텐츠박물관 | indoor | traditional, calm, inspiring | cultural_experience, history_learning | family, kids, couple, solo, seniors |
+| 부용대 | outdoor | romantic, calm, relaxing, local, regional_culture | photo_spot, cultural_experience, nature_observation | couple, solo, family, parents |
+| 안동 하회마을 겸암정사 | unknown | traditional, rustic, local, authentic | cultural_experience, history_learning, nature_observation | family, couple, solo, parents, seniors |
+
+### 축제 테마 재분류 결과 (2건 샘플)
+
+| 축제 | 기존 source_theme | 재분류 primary_theme | theme_tags |
+|------|-------------------|---------------------|------------|
+| 세계유산축전 | 자연·트레킹 | 자연·트레킹 | [자연·트레킹, 역사·전통] |
+| 차전장군 노국공주축제 | 미식·노포 | 역사·전통 | [역사·전통, 미식·노포, 예술·감성] |
+
+### 검증 결과
+
+- ✅ Canonical Taxonomy 범위 내 태그만 생성 (비정규 태그 필터링 정상)
+- ✅ 최대 개수 제한 준수 (vibe_tags ≤5, experience_tags ≤3, companion_fit ≤7)
+- ✅ 6대 테마 범위 내 분류 (primary_theme + theme_tags 1-3개)
+- ✅ indoor_outdoor 값 검증 통과 (indoor, outdoor, unknown 중 하나)
+- ✅ markdown 코드 펜스 응답 자동 파싱 처리
+
+### 사용 모델 참고
+
+- `openai.gpt-oss-120b-1:0` — **운영 권장 모델** ✅ (등록 없이 사용 가능, 높은 태그 품질)
+- `amazon.nova-lite-v1:0` — 대안 모델 (가벼움, 보수적 태그 생성)
+- `anthropic.claude-3-haiku-20240307-v1:0` — use case 등록 필요 (현재 미등록)
+- enrichment_engine.py / theme_classifier.py의 `model_id` 파라미터로 변경 가능
+
+### 모델 비교 (동일 데이터 3건 기준)
+
+| 비교 항목 | Nova Lite | GPT-OSS-120B |
+|-----------|-----------|--------------|
+| vibe_tags 생성 수 | 2~4개 (보수적) | 4~5개 (최대 채움) |
+| indoor/outdoor 정확도 | "unknown" 다수 | 정확한 판단 |
+| 축제 primary_theme | 동일 | 동일 |
+| 태그 다양성 | 낮음 | 높음 (rustic, authentic, village_life 등 세밀) |
+| 응답 속도 | ~2초 | ~3초 |
+| 비용 | 저렴 | 중간 |
+| **운영 권장** | △ | **✅** |
