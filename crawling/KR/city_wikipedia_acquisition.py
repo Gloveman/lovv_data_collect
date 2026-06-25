@@ -169,13 +169,18 @@ def main(argv: list[str] | None = None) -> int:
 def _upload_results(output_dir: Path) -> None:
     """Upload cities.json and prefectures.json to S3."""
     try:
-        from crawling.KR.s3_uploader import upload_to_s3
+        from crawling.KR.s3_uploader import upload_crawl_results, S3UploadConfig
+        import os
 
-        cities_path = output_dir / "cities.json"
-        prefectures_path = output_dir / "prefectures.json"
-        for path in (cities_path, prefectures_path):
-            if path.exists():
-                upload_to_s3(path)
+        bucket = os.environ.get("S3_BUCKET", "")
+        if not bucket:
+            print("Warning: S3_BUCKET not set, skipping S3 upload.", file=sys.stderr)
+            return
+
+        config = S3UploadConfig(bucket=bucket)
+        results = upload_crawl_results(output_dir, config)
+        for r in results:
+            print(f"  S3 {r.status}: {r.s3_key}" + (f" ({r.error})" if r.error else ""))
     except ImportError:
         print("Warning: s3_uploader not available, skipping S3 upload.", file=sys.stderr)
     except Exception as e:
