@@ -77,6 +77,36 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=False,
         help="Upload results to S3 after collection.",
     )
+    parser.add_argument(
+        "--collect-visitor-stats",
+        action="store_true",
+        default=False,
+        help="Run DataLab visitor statistics collection after Wikipedia acquisition.",
+    )
+    parser.add_argument(
+        "--visitor-year",
+        type=int,
+        default=2025,
+        help="Target year for visitor statistics collection (default: 2025).",
+    )
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        default=False,
+        help="Run merge pipeline to combine Wikipedia metadata + visitor statistics.",
+    )
+    parser.add_argument(
+        "--visitor-output",
+        type=Path,
+        default=Path("data/visitor/monthly_visitor_averages.json"),
+        help="Path for visitor statistics output file.",
+    )
+    parser.add_argument(
+        "--final-output-dir",
+        type=Path,
+        default=Path("data/KR/final"),
+        help="Directory for merged per-city output files.",
+    )
     args = parser.parse_args(argv)
 
     # Validate mutual exclusivity
@@ -129,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             f"All provinces complete: {total_new} new, "
             f"{total_skipped} skipped, {total_failed} failed."
         )
+        if args.collect_visitor_stats:
+            _run_visitor_collection(args)
+        if args.merge:
+            _run_merge(args)
         if args.upload_to_s3:
             _upload_results(args.output_dir)
         return 0
@@ -146,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         if result.failed_titles:
             print(f"Failed titles: {result.failed_titles}", file=sys.stderr)
+        if args.collect_visitor_stats:
+            _run_visitor_collection(args)
+        if args.merge:
+            _run_merge(args)
         if args.upload_to_s3:
             _upload_results(args.output_dir)
         return 0
@@ -161,6 +199,12 @@ def main(argv: list[str] | None = None) -> int:
         print("Provide city titles as arguments, --input, --province-id, or --all-provinces.", file=sys.stderr)
         return 2
     acquire_city_data(titles=titles, output_dir=args.output_dir, client=client, source_lang=args.lang)
+
+    # Post-acquisition steps
+    if args.collect_visitor_stats:
+        _run_visitor_collection(args)
+    if args.merge:
+        _run_merge(args)
     if args.upload_to_s3:
         _upload_results(args.output_dir)
     return 0
@@ -185,6 +229,52 @@ def _upload_results(output_dir: Path) -> None:
         print("Warning: s3_uploader not available, skipping S3 upload.", file=sys.stderr)
     except Exception as e:
         print(f"Error uploading to S3: {e}", file=sys.stderr)
+
+
+def _run_visitor_collection(args: "argparse.Namespace") -> None:
+    """Run DataLab visitor statistics collection."""
+    try:
+        from crawling.KR.datalab_collector import (
+            BigDataClient,
+            SignguCodeMapping,
+            collect_visitor_statistics,
+        )
+
+        print(f"Collecting visitor statistics for year {args.visitor_year}...")
+        mapping = SignguCodeMapping()
+        client = BigDataClient()
+        collect_visitor_statistics(
+            year=args.visitor_year,
+            mapping=mapping,
+            client=client,
+            output_path=args.visitor_output,
+            force_refresh=args.force_refresh,
+        )
+        print(f"Visitor statistics saved to {args.visitor_output}")
+    except Exception as e:
+        print(f"Error collecting visitor statistics: {e}", file=sys.stderr)
+
+
+def _run_merge(args: "argparse.Namespace") -> None:
+    """Run merge pipeline to combine Wikipedia metadata + visitor statistics."""
+    try:
+        from crawling.KR.merge_pipeline import merge_city_with_visitor_stats
+
+        cities_path = args.output_dir / "cities.json"
+        print(f"Merging Wikipedia + visitor data → {args.final_output_dir}...")
+        result = merge_city_with_visitor_stats(
+            cities_path=cities_path,
+            visitor_stats_path=args.visitor_output,
+            output_dir=args.final_output_dir,
+        )
+        print(
+            f"Merge complete: {result.merged_count} merged, "
+            f"{result.wikipedia_only_count} wiki-only, "
+            f"{result.visitor_only_count} visitor-only "
+            f"(total: {result.total})"
+        )
+    except Exception as e:
+        print(f"Error running merge pipeline: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
