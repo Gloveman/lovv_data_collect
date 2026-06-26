@@ -31,14 +31,14 @@ AWS Step Functions 상태 머신으로 211개 도시 관광 데이터를 End-to-
     - Versioning disabled (no versioning resource = disabled by default)
     - _Requirements: 9.1, 9.2_
 
-- [ ] 2. Lambda Layer 및 신규 Lambda 인프라
+- [x] 2. Lambda Layer 및 신규 Lambda 인프라
   - [x] 2.1 Create `layers/requests/build.sh` — build script for requests Lambda Layer
     - Script: `pip install requests -t python/ --platform manylinux2014_x86_64 --only-binary=:all: --python-version 3.12`
     - Zip output to `layer.zip`
     - Print layer size for validation (< 50MB)
     - _Requirements: 6.1, 6.2, 6.6_
 
-  - [~] 2.2 Create `infrastructure/terraform/lambda_layer_requests.tf` — Terraform resource for Lambda Layer
+  - [x] 2.2 Create `infrastructure/terraform/lambda_layer_requests.tf` — Terraform resource for Lambda Layer
     - Define `aws_lambda_layer_version.requests` resource
     - Compatible runtimes: `python3.12`
     - Compatible architectures: `x86_64`
@@ -47,7 +47,7 @@ AWS Step Functions 상태 머신으로 211개 도시 관광 데이터를 End-to-
     - Attach to `kr-pipeline-loader` Lambda
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-  - [~] 2.3 Create `infrastructure/terraform/lambda_image_processor.tf` — new kr-pipeline-image Lambda
+  - [x] 2.3 Create `infrastructure/terraform/lambda_image_processor.tf` — new kr-pipeline-image Lambda
     - Define `aws_lambda_function.kr_pipeline_image` resource
     - Runtime: python3.12, timeout: 900 (15min), memory: 512MB
     - Handler: `kr_image_processor.handlers.image_handler.handler`
@@ -60,13 +60,13 @@ AWS Step Functions 상태 머신으로 211개 도시 관광 데이터를 End-to-
   - Ensure `terraform plan` produces expected changes (no unintended modifications to existing resources).
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. kr-pipeline-image Lambda 구현 — 핵심 처리 로직
+- [x] 4. kr-pipeline-image Lambda 구현 — 핵심 처리 로직
   - [x] 4.1 Create `src/kr_image_processor/__init__.py` and module directory structure
     - Create directories: `src/kr_image_processor/`, `src/kr_image_processor/handlers/`, `src/kr_image_processor/tests/`
     - Create `__init__.py` files for all packages
     - _Requirements: 2.2_
 
-  - [~] 4.2 Implement `src/kr_image_processor/processor.py` — city-level image processing
+  - [x] 4.2 Implement `src/kr_image_processor/processor.py` — city-level image processing
     - Function `process_city(bucket, ingest_date, city_name_en, source_key)` → dict
     - Read city JSON from S3 (source_key)
     - For each record: download image via `kr_image_uploader.download.fetch_bytes` (3 retries with exponential backoff)
