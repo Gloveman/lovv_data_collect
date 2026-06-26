@@ -273,7 +273,7 @@ This plan implements the unified preprocessing pipeline as AWS Lambda functions 
     - Test error cases: missing province-id with local-test, unknown stage values
     - _Requirements: 10.1, 10.2, 10.3, 14.8_
 
-- [~] 14. Final checkpoint - Ensure all tests pass
+- [x] 14. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
