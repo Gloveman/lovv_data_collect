@@ -14,8 +14,9 @@ data "aws_caller_identity" "current" {}
 locals {
   bucket_name = "${var.bucket_base_name}-${var.env}-${data.aws_caller_identity.current.account_id}"
   lambda_names = {
-    domain_loader = "kr-domain-loader"
-    vector_index  = "kr-vector-index"
+    domain_loader    = "kr-domain-loader"
+    vector_index     = "kr-vector-index"
+    unified_pipeline = "kr-unified-pipeline"
   }
   vector_bucket_arn   = "arn:aws:s3vectors:${var.aws_region}:${data.aws_caller_identity.current.account_id}:bucket/${var.vector_bucket_name}"
   kr_vector_index_arn = "${local.vector_bucket_arn}/index/${var.kr_vector_index_name}"
@@ -164,6 +165,85 @@ resource "aws_dynamodb_table" "tourkorea_domain_data" {
   tags = merge(local.base_tags, { Name = var.domain_dynamodb_table_name, schema = "domain-separated" })
 }
 
+resource "aws_dynamodb_table" "tourkorea_domain_data_v2" {
+  # 의미 있는 GSI 명명을 적용한 신규 도메인 테이블입니다.
+  # 기존 TourKoreaDomainData 테이블을 유지하며 병행 운영합니다.
+  name           = var.domain_dynamodb_table_name_v2
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "PK"
+  range_key      = "SK"
+  stream_enabled = false
+
+  attribute {
+    name = "PK"
+    type = "S"
+  }
+
+  attribute {
+    name = "SK"
+    type = "S"
+  }
+
+  attribute {
+    name = "entity_type"
+    type = "S"
+  }
+
+  attribute {
+    name = "city_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "province_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "domain_sort_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi_sk"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "CityDomainIndex"
+    hash_key        = "city_key"
+    range_key       = "domain_sort_key"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "ProvinceDomainIndex"
+    hash_key        = "province_key"
+    range_key       = "domain_sort_key"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "EntityTypeDomainIndex"
+    hash_key        = "entity_type"
+    range_key       = "domain_sort_key"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "FestivalMonthIndex"
+    hash_key        = "entity_type"
+    range_key       = "gsi_sk"
+    projection_type = "ALL"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  tags = merge(local.base_tags, { Name = var.domain_dynamodb_table_name_v2, schema = "domain-separated-v2" })
+}
+
 resource "aws_iam_role" "pipeline_lambda_role" {
   # Lambda 실행 역할. Lambda 서비스가 AssumeRole로 사용합니다.
   name = "lovv-data-pipeline-lambda-${var.env}"
@@ -217,6 +297,31 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
           "dynamodb:DescribeTable"
         ]
         Resource = aws_dynamodb_table.tourkorea_domain_data.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query"
+        ]
+        Resource = aws_dynamodb_table.tourkorea_domain_data_v2.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query"
+        ]
+        Resource = "${aws_dynamodb_table.tourkorea_domain_data_v2.arn}/index/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeTable"
+        ]
+        Resource = aws_dynamodb_table.tourkorea_domain_data_v2.arn
       },
       {
         Effect = "Allow"
@@ -454,5 +559,53 @@ resource "aws_lambda_function" "kr_vector_index" {
   depends_on = [
     aws_iam_role_policy.pipeline_lambda_policy,
     aws_cloudwatch_log_group.lambda_vector_index,
+  ]
+}
+
+# -----------------------------------------------------------------------------
+# KR Unified Pipeline Lambda
+# -----------------------------------------------------------------------------
+
+data "archive_file" "kr_unified_pipeline_lambda" {
+  # 통합 파이프라인 handler를 포함하는 ZIP. kr_details_pipeline과 kr_vector_index도 포함.
+  type        = "zip"
+  source_dir  = "${path.module}/../../src"
+  output_path = "${path.module}/kr_unified_pipeline_lambda.zip"
+  excludes = [
+    "**/__pycache__/**",
+    "**/tests/**",
+  ]
+}
+
+resource "aws_cloudwatch_log_group" "lambda_unified_pipeline" {
+  name              = "/aws/lambda/${local.lambda_names.unified_pipeline}"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "kr_unified_pipeline" {
+  function_name    = local.lambda_names.unified_pipeline
+  description      = "KR unified preprocessing pipeline: E2E (S3 -> DynamoDB -> Vector) and preprocess orchestration"
+  role             = aws_iam_role.pipeline_lambda_role.arn
+  handler          = "kr_unified_pipeline.handlers.pipeline_handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 1024
+  filename         = data.archive_file.kr_unified_pipeline_lambda.output_path
+  source_code_hash = data.archive_file.kr_unified_pipeline_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE  = var.domain_dynamodb_table_name_v2
+      PIPELINE_BUCKET = aws_s3_bucket.pipeline.bucket
+      VECTOR_BUCKET   = var.vector_bucket_name
+      VECTOR_INDEX    = var.kr_vector_index_name
+      MANIFEST_BUCKET = aws_s3_bucket.pipeline.bucket
+      MANIFEST_PREFIX = "${var.processed_data_prefix}/vector/manifests"
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.pipeline_lambda_policy,
+    aws_cloudwatch_log_group.lambda_unified_pipeline,
   ]
 }
