@@ -206,7 +206,7 @@ AWS Step Functions 상태 머신으로 211개 도시 관광 데이터를 End-to-
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Final wiring and deployment preparation
-  - [~] 12.1 Create `data "archive_file"` for kr-pipeline-image Lambda in Terraform
+  - [ ] 12.1 Create `data "archive_file"` for kr-pipeline-image Lambda in Terraform
     - Define ZIP archive for `src/kr_image_processor/` directory
     - Exclude `__pycache__`, `tests/`
     - Wire to `aws_lambda_function.kr_pipeline_image` resource
