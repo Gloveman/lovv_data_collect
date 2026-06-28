@@ -71,6 +71,21 @@ variable "kr_vector_index_name" {
 }
 
 # -----------------------------------------------------------------------------
+# AgentCore v1 Vector 구성 (강원/경북 전용)
+# -----------------------------------------------------------------------------
+variable "agentcore_v1_vector_bucket_name" {
+  description = "S3 Vector bucket name for AgentCore v1 (강원/경북 only)."
+  type        = string
+  default     = "lovv-agentcore-v1-vector"
+}
+
+variable "agentcore_v1_vector_index_name" {
+  description = "S3 Vector index name for AgentCore v1."
+  type        = string
+  default     = "kr-agentcore-v1"
+}
+
+# -----------------------------------------------------------------------------
 # 데이터 저장소(DynamoDB) 구성
 # -----------------------------------------------------------------------------
 variable "domain_dynamodb_table_name" {
@@ -80,7 +95,7 @@ variable "domain_dynamodb_table_name" {
 }
 
 variable "domain_dynamodb_table_name_v2" {
-  description = "DynamoDB V2 table name for unified preprocessing pipeline domain data."
+  description = "DynamoDB V2 table name with descriptive GSI naming for unified pipeline."
   type        = string
   default     = "TourKoreaDomainDataV2"
 }

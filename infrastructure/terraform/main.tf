@@ -14,12 +14,16 @@ data "aws_caller_identity" "current" {}
 locals {
   bucket_name = "${var.bucket_base_name}-${var.env}-${data.aws_caller_identity.current.account_id}"
   lambda_names = {
-    domain_loader    = "kr-domain-loader"
-    vector_index     = "kr-vector-index"
-    unified_pipeline = "kr-unified-pipeline"
+    transform = "kr-pipeline-transform"
+    loader    = "kr-pipeline-loader"
+    vector    = "kr-pipeline-vector"
+    ingest    = "kr-pipeline-ingest"
+    image     = "kr-pipeline-image"
   }
   vector_bucket_arn   = "arn:aws:s3vectors:${var.aws_region}:${data.aws_caller_identity.current.account_id}:bucket/${var.vector_bucket_name}"
   kr_vector_index_arn = "${local.vector_bucket_arn}/index/${var.kr_vector_index_name}"
+  agentcore_v1_vector_bucket_arn = "arn:aws:s3vectors:${var.aws_region}:${data.aws_caller_identity.current.account_id}:bucket/${var.agentcore_v1_vector_bucket_name}"
+  agentcore_v1_vector_index_arn  = "${local.agentcore_v1_vector_bucket_arn}/index/${var.agentcore_v1_vector_index_name}"
   base_tags           = merge(var.tags, { env = var.env })
 }
 
@@ -167,7 +171,6 @@ resource "aws_dynamodb_table" "tourkorea_domain_data" {
 
 resource "aws_dynamodb_table" "tourkorea_domain_data_v2" {
   # 의미 있는 GSI 명명을 적용한 신규 도메인 테이블입니다.
-  # 기존 TourKoreaDomainData 테이블을 유지하며 병행 운영합니다.
   name           = var.domain_dynamodb_table_name_v2
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "PK"
@@ -178,32 +181,26 @@ resource "aws_dynamodb_table" "tourkorea_domain_data_v2" {
     name = "PK"
     type = "S"
   }
-
   attribute {
     name = "SK"
     type = "S"
   }
-
   attribute {
     name = "entity_type"
     type = "S"
   }
-
   attribute {
     name = "city_key"
     type = "S"
   }
-
   attribute {
     name = "province_key"
     type = "S"
   }
-
   attribute {
     name = "domain_sort_key"
     type = "S"
   }
-
   attribute {
     name = "gsi_sk"
     type = "S"
@@ -283,6 +280,31 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
           "dynamodb:Query"
         ]
         Resource = aws_dynamodb_table.tourkorea_domain_data.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query"
+        ]
+        Resource = aws_dynamodb_table.tourkorea_domain_data_v2.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query"
+        ]
+        Resource = "${aws_dynamodb_table.tourkorea_domain_data_v2.arn}/index/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DescribeTable"
+        ]
+        Resource = aws_dynamodb_table.tourkorea_domain_data_v2.arn
       },
       {
         Effect = "Allow"
@@ -378,6 +400,22 @@ resource "aws_iam_role_policy" "pipeline_lambda_policy" {
           local.vector_bucket_arn,
           local.kr_vector_index_arn
         ]
+      },
+      {
+        # AgentCore v1 vector bucket/index (강원/경북 전용)
+        Effect = "Allow"
+        Action = [
+          "s3vectors:GetVectorBucket",
+          "s3vectors:GetIndex",
+          "s3vectors:ListVectors",
+          "s3vectors:GetVectors",
+          "s3vectors:QueryVectors",
+          "s3vectors:PutVectors"
+        ]
+        Resource = [
+          local.agentcore_v1_vector_bucket_arn,
+          local.agentcore_v1_vector_index_arn
+        ]
       }
     ]
   })
@@ -424,7 +462,9 @@ resource "aws_iam_role_policy" "s3_vector_index_writer_policy" {
         ]
         Resource = [
           local.vector_bucket_arn,
-          local.kr_vector_index_arn
+          local.kr_vector_index_arn,
+          local.agentcore_v1_vector_bucket_arn,
+          local.agentcore_v1_vector_index_arn
         ]
       }
     ]
@@ -468,22 +508,24 @@ resource "aws_iam_role_policy" "s3_vector_index_reader_policy" {
         ]
         Resource = [
           local.vector_bucket_arn,
-          local.kr_vector_index_arn
+          local.kr_vector_index_arn,
+          local.agentcore_v1_vector_bucket_arn,
+          local.agentcore_v1_vector_index_arn
         ]
       }
     ]
   })
 }
 
-resource "aws_cloudwatch_log_group" "lambda_domain_loader" {
-  # domain-loader Lambda 런타임 로그. 보관 기간은 14일.
-  name              = "/aws/lambda/${local.lambda_names.domain_loader}"
+resource "aws_cloudwatch_log_group" "lambda_transform" {
+  # kr-pipeline-transform Lambda 런타임 로그. 보관 기간은 14일.
+  name              = "/aws/lambda/${local.lambda_names.transform}"
   retention_in_days = 14
 }
 
-resource "aws_cloudwatch_log_group" "lambda_vector_index" {
-  # vector-index Lambda 런타임 로그. 보관 기간은 14일.
-  name              = "/aws/lambda/${local.lambda_names.vector_index}"
+resource "aws_cloudwatch_log_group" "lambda_vector" {
+  # kr-pipeline-vector Lambda 런타임 로그. 보관 기간은 14일.
+  name              = "/aws/lambda/${local.lambda_names.vector}"
   retention_in_days = 14
 }
 
@@ -511,9 +553,9 @@ data "archive_file" "kr_vector_index_lambda" {
   ]
 }
 
-resource "aws_lambda_function" "kr_domain_loader" {
-  function_name    = local.lambda_names.domain_loader
-  description      = "KR domain loader Lambda for manual raw JSON preprocessing and DynamoDB load"
+resource "aws_lambda_function" "kr_pipeline_transform" {
+  function_name    = local.lambda_names.transform
+  description      = "KR pipeline transform Lambda for manual raw JSON preprocessing and DynamoDB load"
   role             = aws_iam_role.pipeline_lambda_role.arn
   handler          = "kr_details_pipeline.handlers.domain_loader_handler.handler"
   runtime          = "python3.12"
@@ -531,12 +573,12 @@ resource "aws_lambda_function" "kr_domain_loader" {
 
   depends_on = [
     aws_iam_role_policy.pipeline_lambda_policy,
-    aws_cloudwatch_log_group.lambda_domain_loader,
+    aws_cloudwatch_log_group.lambda_transform,
   ]
 }
 
-resource "aws_lambda_function" "kr_vector_index" {
-  function_name    = local.lambda_names.vector_index
+resource "aws_lambda_function" "kr_pipeline_vector" {
+  function_name    = local.lambda_names.vector
   description      = "KR S3 Vector index build Lambda handler"
   role             = aws_iam_role.pipeline_lambda_role.arn
   handler          = "kr_vector_index.handlers.vector_index_handler.handler"
@@ -558,7 +600,57 @@ resource "aws_lambda_function" "kr_vector_index" {
 
   depends_on = [
     aws_iam_role_policy.pipeline_lambda_policy,
-    aws_cloudwatch_log_group.lambda_vector_index,
+    aws_cloudwatch_log_group.lambda_vector,
+  ]
+}
+
+# -----------------------------------------------------------------------------
+# kr-pipeline-loader Lambda (기존 kr_unified_pipeline 코드 재사용)
+# -----------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "lambda_loader" {
+  # kr-pipeline-loader Lambda 런타임 로그. 보관 기간은 14일.
+  name              = "/aws/lambda/${local.lambda_names.loader}"
+  retention_in_days = 14
+}
+
+data "archive_file" "kr_unified_pipeline_lambda" {
+  # kr_unified_pipeline 소스를 ZIP으로 묶어 loader Lambda에 배포합니다.
+  type        = "zip"
+  source_dir  = "${path.module}/../../src"
+  output_path = "${path.module}/kr_unified_pipeline_lambda.zip"
+  excludes = [
+    "**/__pycache__/**",
+    "**/tests/**",
+    "kr_vector_index/**",
+    "kr_image_processor/**",
+  ]
+}
+
+resource "aws_lambda_function" "kr_pipeline_loader" {
+  function_name    = local.lambda_names.loader
+  description      = "KR pipeline loader Lambda for S3-to-DynamoDB load and vector index rebuild"
+  role             = aws_iam_role.pipeline_lambda_role.arn
+  handler          = "kr_unified_pipeline.handlers.pipeline_handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 512
+  filename         = data.archive_file.kr_unified_pipeline_lambda.output_path
+  source_code_hash = data.archive_file.kr_unified_pipeline_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE   = var.domain_dynamodb_table_name
+      PIPELINE_BUCKET  = aws_s3_bucket.pipeline.bucket
+      VECTOR_BUCKET    = var.vector_bucket_name
+      VECTOR_INDEX     = var.kr_vector_index_name
+      PROCESSED_PREFIX = var.processed_data_prefix
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.pipeline_lambda_policy,
+    aws_cloudwatch_log_group.lambda_loader,
   ]
 }
 

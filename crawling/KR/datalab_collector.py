@@ -502,3 +502,99 @@ def collect_visitor_statistics(
     )
 
     return results
+
+
+def collect_visitor_statistics_for_city(
+    signgu_code: str,
+    city_name_en: str,
+    year: int,
+    client: BigDataClient,
+) -> dict[str, Any] | None:
+    """Collect visitor statistics for a single city by signguCode.
+
+    Returns a dict matching the raw format expected by kr_details_pipeline:
+    {
+        "year": 2025,
+        "annual_totals": {...},
+        "annual_daily_averages": {...},
+        "monthly_statistics": [{month, locals_total, ...}, ...]
+    }
+
+    Returns None if no data found or API error.
+    """
+    months_info: list[tuple[str, str, str, int]] = []
+    for m in range(1, 13):
+        days = get_days_in_month(year, m)
+        start_ymd = f"{year}{m:02d}01"
+        end_ymd = f"{year}{m:02d}{days:02d}"
+        month_str = f"{year}{m:02d}"
+        months_info.append((start_ymd, end_ymd, month_str, days))
+
+    monthly_stats: list[dict[str, Any]] = []
+
+    for start_ymd, end_ymd, month_str, days in months_info:
+        params = {
+            "startYmd": start_ymd,
+            "endYmd": end_ymd,
+            "numOfRows": 5000,
+            "pageNo": 1,
+        }
+
+        try:
+            resp_data = client.request("locgoRegnVisitrDDList", params)
+        except (RuntimeError, Exception) as e:
+            logger.warning("DataLab query failed for %s month %s: %s", city_name_en, month_str, e)
+            continue
+
+        body = resp_data.get("response", {}).get("body", {})
+        items = body.get("items", {})
+        item_list = items.get("item", []) if isinstance(items, dict) else []
+        if not isinstance(item_list, list):
+            item_list = [item_list] if isinstance(item_list, dict) else []
+
+        # Filter by signguCode
+        city_records = [
+            item for item in item_list
+            if str(item.get("signguCode", "")).strip() == signgu_code
+        ]
+
+        agg = aggregate_monthly(city_records, month_str, days)
+        monthly_stats.append({
+            "month": month_str,
+            "days": days,
+            "locals_total": agg.locals_total,
+            "locals_daily_avg": agg.locals_daily_avg,
+            "out_of_town_total": agg.out_of_town_total,
+            "out_of_town_daily_avg": agg.out_of_town_daily_avg,
+            "foreigners_total": agg.foreigners_total,
+            "foreigners_daily_avg": agg.foreigners_daily_avg,
+            "total_visitors": agg.total_visitors,
+            "total_daily_avg": agg.total_daily_avg,
+        })
+
+    if not monthly_stats:
+        return None
+
+    # Compute annual totals
+    total_locals = sum(m["locals_total"] for m in monthly_stats)
+    total_out = sum(m["out_of_town_total"] for m in monthly_stats)
+    total_foreign = sum(m["foreigners_total"] for m in monthly_stats)
+    total_visitors = sum(m["total_visitors"] for m in monthly_stats)
+    total_days = sum(m["days"] for m in monthly_stats)
+
+    return {
+        "year": year,
+        "annual_totals": {
+            "locals": round(total_locals, 2),
+            "out_of_town": round(total_out, 2),
+            "foreigners": round(total_foreign, 2),
+            "total_visitors": round(total_visitors, 2),
+        },
+        "annual_daily_averages": {
+            "locals": round(total_locals / total_days, 2) if total_days else 0,
+            "out_of_town": round(total_out / total_days, 2) if total_days else 0,
+            "foreigners": round(total_foreign / total_days, 2) if total_days else 0,
+            "total_visitors": round(total_visitors / total_days, 2) if total_days else 0,
+        },
+        "monthly_statistics": monthly_stats,
+    }
